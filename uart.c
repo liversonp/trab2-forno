@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-int matricula[] = {2,2,3,7};
+char matricula[] = {2,2,3,7};
 
 short CRC16(short crc, char data){
     const short tbl[256] = {

@@ -4,9 +4,16 @@
 #include <unistd.h>
 #include <string.h>
 #include <termios.h>
+#include <pthread.h>
 
 #include "bme280.h"
 #include "uart.h"
+
+#define LIGAR 0xA1
+#define DESLIGAR 0xA2
+#define AQUECER 0xA3
+#define CANCELAR 0xA4
+#define MODO 0xA5
 
 float temperaturaI = 0;
 float temperaturaR = 0;
@@ -50,6 +57,32 @@ void medidorTemperatura(){
         memcpy(&temperaturaI, &buffer[3], 4);
 
         printf("Temperatura interna: %.2f\n", temperaturaI);
+    }
+}
+
+void menu(){
+    int opcao;
+    switch(opcao){
+        case 1:
+            printf("caso 1\n");
+            break;
+        
+        case 2:
+            printf("caso 2\n");
+            break;
+        
+        case 3:
+            printf("caso 3\n");
+            break;
+        
+        case 4:
+            printf("caso 4\n");
+            break;
+        
+        case 5:
+            printf("caso 5\n");
+            break;
+
     }
 }
 
