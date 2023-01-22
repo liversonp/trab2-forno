@@ -1,8 +1,8 @@
 all: build run
 
 build: 
-	gcc main.c -o forno -lwiringPi -lpthread
+	gcc main.c uart.c bme280.c -o forno -lwiringPi -lpthread
 run:    
 	./forno "/dev/i2c-1"
 clean:
-	rm -rf bin
+	rm -rf forno
