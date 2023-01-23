@@ -5,14 +5,18 @@
 #include <string.h>
 #include <termios.h>
 #include <pthread.h>
-#include <semaphore.h>
+#include <wiringPi.h>
 
 #include "bme280.h"
 #include "uart.h"
 #include "pid.h"
 
+#define RESISTOR 4
+#define VENTOINHA 5
+
+#define I2C_ADDR 0x76
+
 pthread_t t_menu;
-sem_t uart_sem;
 
 
 float temperaturaI = 0;
@@ -24,7 +28,6 @@ float ki = 0.2;
 float kd = 400;
 
 int uartValue;
-
 int ligado = 0;
 
 int setupUart(){
@@ -44,6 +47,16 @@ int setupUart(){
 
 void setupProgram(){
     uartValue = setupUart();
+    if(wiringPiSetup() == -1){
+        exit(1);
+    }
+
+    pinMode(RESISTOR, OUTPUT);
+    pinMode(VENTOINHA, OUTPUT);
+
+    softPwmCreate(RESISTOR,0,100);
+    softPwmCreate(VENTOINHA,0,100);
+
 }
 
 void tratasinal(int s){
@@ -52,20 +65,18 @@ void tratasinal(int s){
     exit(0);
 }
 
-void medidorTemperatura(){
+void medidorTemperaturaInterna(){
     char buffer[40];
     int bufferSize;
     int bme;
     uint32_t delay;
-    /*while(1){
-        sem_wait(&uart_sem);
+    while(1){
         reqData(uartValue, SOLIC_TI);
         usleep(1000000);
         readData(uartValue, buffer, 9);
         memcpy(&temperaturaI, &buffer[3], 4);
-        sem_post(&uart_sem);
-        printf("Temperatura interna: %.2f\n", temperaturaI);
-    }*/
+        printf("Temperatura interna: %.2f\%\n", temperaturaI);
+    }
 }
 
 void *menu(){
@@ -74,12 +85,10 @@ void *menu(){
 
     while(1){
         usleep(500000);
-        sem_wait(&uart_sem);
         reqData(uartValue, CMD_USER);
         usleep(1000000);
         readData(uartValue, buffer, 9);
         memcpy(&comando, &buffer[3], 1);
-        sem_post(&uart_sem);
 
         printf("Comando do usuario: %d\n", comando);
         switch(comando){
@@ -103,10 +112,16 @@ void *menu(){
             
             case 163:
                 printf("Comando para iniciar o aquecimento do forno\n");
+                if(ligado){
+                    printf("Iniciando aquecimento\n");
+                }
                 break;
             
             case 164:
                 printf("Comando para cancelar o processo\n");
+                if(ligado){
+                    printf("Parando o processo\n");
+                }
                 break;
             
             case 165:
@@ -117,12 +132,16 @@ void *menu(){
     }
 }
 
-int main(){
+int main(int argc, char *argv[]){
+    if(argc < 2){
+        printf("Eh necessario passar parametros para o funcionamento do programa!!\n");
+        exit(1);
+    }
+
     setupProgram();
     signal(SIGINT, tratasinal);
-    sem_init(&uart_sem,0,1);
     pthread_create(&t_menu, NULL, menu, NULL);
-    medidorTemperatura();
+    medidorTemperaturaInterna();
     pthread_join(t_menu,NULL);
     return 0;
 }
