@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <termios.h>
 #include <pthread.h>
 #include <wiringPi.h>
+#include <softPwm.h>
 
 #include "bme280.h"
 #include "uart.h"
@@ -17,11 +17,13 @@
 #define I2C_ADDR 0x76
 
 pthread_t t_menu;
-
+pthread_t t_forno;
 
 float temperaturaI = 0;
 float temperaturaR = 0;
 float temperaturaE = 0;
+float resPWML = 0;
+float ventoinhaPWML = 0;
 
 float kp = 30;
 float ki = 0.2;
@@ -29,6 +31,7 @@ float kd = 400;
 
 int uartValue;
 int ligado = 0;
+int funcionamento = 0;
 
 int setupUart(){
     int filestream = -1;
@@ -60,8 +63,19 @@ void setupProgram(){
 }
 
 void tratasinal(int s){
-    printf("Finalizando o programa\n");
+    int encerra = 0;
+    char buff[4];
+    
+    memcpy(&buff, (char*)&encerra, sizeof(encerra));
+    sendData(uartValue, ENVIA_ESTADO_SIS, buff, 1);
+
     pthread_cancel(t_menu);
+    pthread_cancel(t_forno);
+
+    softPwmWrite(RESISTOR,0);
+    softPwmWrite(VENTOINHA,0);
+    
+    printf("Finalizando o programa\n");
     exit(0);
 }
 
@@ -75,20 +89,78 @@ void medidorTemperaturaInterna(){
         usleep(1000000);
         readData(uartValue, buffer, 9);
         memcpy(&temperaturaI, &buffer[3], 4);
-        printf("Temperatura interna: %.2f\%\n", temperaturaI);
+        //printf("Temperatura interna: %.2f\%\n", temperaturaI);
+    }
+}
+
+void esquentarForno(float valorResistor){
+    int max = 100;
+    char temp[4];
+
+    memcpy(temp,(char*)&max, sizeof(max));
+    sendData(uartValue, ENVIA_SINAL_CTRL, temp, 4);
+
+    softPwmWrite(RESISTOR, valorResistor);
+    resPWML = valorResistor;
+}
+
+void esfriarForno(float valorVentoinha){
+    int max = -100;
+    char temp[4];
+
+    memcpy(temp, (char*)&max, sizeof(max));
+    sendData(uartValue, ENVIA_SINAL_CTRL, temp, 4);
+
+    valorVentoinha *= -1;
+
+    softPwmWrite(VENTOINHA,valorVentoinha);
+    ventoinhaPWML = valorVentoinha;
+}
+
+void *iniciaPID(){
+    int PIDflag = -1;
+    int contador = 0;
+    int estavel = 0;
+    char buffer[40];
+    while(1){
+        while(funcionamento){
+            printf("entrei em funcionamento\n");
+            contador++;
+            reqData(uartValue, SOLIC_TR);
+            readData(uartValue, buffer, 9);
+            memcpy(&temperaturaR, &buffer[3], 4);
+
+            pid_atualiza_referencia(temperaturaR);
+            PIDflag = pid_controle(temperaturaI);
+            if(temperaturaR - temperaturaI <= 0.5 && temperaturaR - temperaturaI >= -0.5 && estavel == 5){
+                funcionamento = 0;
+            }
+            else if(PIDflag > 0){
+                estavel = 0;
+                esquentarForno(PIDflag);
+            }
+            else if(PIDflag < 0){
+                estavel = 0;
+                esfriarForno(PIDflag);
+            }
+            if(temperaturaI - temperaturaR <= 0.5 && temperaturaI - temperaturaR >= -0.5){
+                estavel++;
+            }
+        }
     }
 }
 
 void *menu(){
     int comando;
-    char buffer[40];
+    char bufferUser[40];
+    char buffer[4];
 
     while(1){
         usleep(500000);
         reqData(uartValue, CMD_USER);
         usleep(1000000);
-        readData(uartValue, buffer, 9);
-        memcpy(&comando, &buffer[3], 1);
+        readData(uartValue, bufferUser, 9);
+        memcpy(&comando, &bufferUser[3], 1);
 
         printf("Comando do usuario: %d\n", comando);
         switch(comando){
@@ -98,22 +170,31 @@ void *menu(){
                 memcpy(buffer, (char*)&ligado,sizeof(ligado));
                 sendData(uartValue, ENVIA_ESTADO_SIS, buffer, 1);
                 usleep(1000000);
-                readData(uartValue,buffer, 9);
+                readData(uartValue,bufferUser, 9);
                 break;
             
             case 162:
+                funcionamento = 0;
                 printf("Comando para desligar o forno\n");
-                ligado = 0;
                 memcpy(buffer,(char*)&ligado,sizeof(ligado));
                 sendData(uartValue, ENVIA_ESTADO_SIS, buffer, 1);
                 usleep(1000000);
-                readData(uartValue, buffer, 9);
+                readData(uartValue, bufferUser, 9);
+
+                softPwmWrite(RESISTOR,0);
+                softPwmWrite(VENTOINHA,0);
+                ligado = 0;
                 break;
             
             case 163:
                 printf("Comando para iniciar o aquecimento do forno\n");
                 if(ligado){
                     printf("Iniciando aquecimento\n");
+                    funcionamento = 1;
+                    memcpy(buffer, (char*)&funcionamento, sizeof(funcionamento));
+                    sendData(uartValue,ENVIA_ESTADO_FUN, buffer,1);
+                    usleep(1000000);
+                    readData(uartValue, bufferUser, 9);
                 }
                 break;
             
@@ -121,6 +202,15 @@ void *menu(){
                 printf("Comando para cancelar o processo\n");
                 if(ligado){
                     printf("Parando o processo\n");
+                    funcionamento = 0;
+                    
+                    memcpy(buffer, (char*)&ligado, sizeof(ligado));
+                    sendData(uartValue, ENVIA_ESTADO_FUN, buffer, 1);
+                    usleep(1000000);
+                    readData(uartValue, bufferUser, 9);
+                    
+                    softPwmWrite(RESISTOR,0);
+                    softPwmWrite(VENTOINHA,0);
                 }
                 break;
             
@@ -141,7 +231,9 @@ int main(int argc, char *argv[]){
     setupProgram();
     signal(SIGINT, tratasinal);
     pthread_create(&t_menu, NULL, menu, NULL);
+    pthread_create(&t_forno, NULL, iniciaPID, NULL);
     medidorTemperaturaInterna();
     pthread_join(t_menu,NULL);
+    pthread_join(t_forno, NULL);
     return 0;
 }
