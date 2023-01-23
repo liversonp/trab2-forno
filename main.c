@@ -18,6 +18,7 @@
 
 pthread_t t_menu;
 pthread_t t_forno;
+pthread_t t_temperaturaR;
 
 float temperaturaI = 0;
 float temperaturaR = 0;
@@ -71,6 +72,7 @@ void tratasinal(int s){
 
     pthread_cancel(t_menu);
     pthread_cancel(t_forno);
+    pthread_cancel(t_temperaturaR);
 
     softPwmWrite(RESISTOR,0);
     softPwmWrite(VENTOINHA,0);
@@ -82,14 +84,24 @@ void tratasinal(int s){
 void medidorTemperaturaInterna(){
     char buffer[40];
     int bufferSize;
-    int bme;
-    uint32_t delay;
     while(1){
         reqData(uartValue, SOLIC_TI);
         usleep(1000000);
         readData(uartValue, buffer, 9);
         memcpy(&temperaturaI, &buffer[3], 4);
         //printf("Temperatura interna: %.2f\%\n", temperaturaI);
+    }
+}
+
+void *medidorTemperaturaReferencia(){
+    char buffer[40];
+    int bufferSize;
+    while(1){
+        reqData(uartValue, SOLIC_TR);
+        usleep(1000000);
+        readData(uartValue, buffer, 9);
+        memcpy(&temperaturaR, &buffer[3], 4);
+        //printf("Temperatura referencia: %.2f\%\n", temperaturaR);
     }
 }
 
@@ -121,16 +133,10 @@ void *iniciaPID(){
     int PIDflag = -1;
     int contador = 0;
     int estavel = 0;
-    char buffer[40];
     while(1){
         while(funcionamento){
-            printf("entrei em funcionamento\n");
             contador++;
-            reqData(uartValue, SOLIC_TR);
-            readData(uartValue, buffer, 9);
-            memcpy(&temperaturaR, &buffer[3], 4);
-
-            pid_atualiza_referencia(temperaturaR);
+            usleep(1000000);
             PIDflag = pid_controle(temperaturaI);
             if(temperaturaR - temperaturaI <= 0.5 && temperaturaR - temperaturaI >= -0.5 && estavel == 5){
                 funcionamento = 0;
@@ -175,6 +181,7 @@ void *menu(){
             
             case 162:
                 funcionamento = 0;
+                ligado = 0;
                 printf("Comando para desligar o forno\n");
                 memcpy(buffer,(char*)&ligado,sizeof(ligado));
                 sendData(uartValue, ENVIA_ESTADO_SIS, buffer, 1);
@@ -183,7 +190,6 @@ void *menu(){
 
                 softPwmWrite(RESISTOR,0);
                 softPwmWrite(VENTOINHA,0);
-                ligado = 0;
                 break;
             
             case 163:
@@ -204,7 +210,7 @@ void *menu(){
                     printf("Parando o processo\n");
                     funcionamento = 0;
                     
-                    memcpy(buffer, (char*)&ligado, sizeof(ligado));
+                    memcpy(buffer, (char*)&funcionamento, sizeof(funcionamento));
                     sendData(uartValue, ENVIA_ESTADO_FUN, buffer, 1);
                     usleep(1000000);
                     readData(uartValue, bufferUser, 9);
@@ -232,6 +238,7 @@ int main(int argc, char *argv[]){
     signal(SIGINT, tratasinal);
     pthread_create(&t_menu, NULL, menu, NULL);
     pthread_create(&t_forno, NULL, iniciaPID, NULL);
+    pthread_create(&t_temperaturaR,NULL, medidorTemperaturaReferencia, NULL);
     medidorTemperaturaInterna();
     pthread_join(t_menu,NULL);
     pthread_join(t_forno, NULL);
