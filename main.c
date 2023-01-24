@@ -83,6 +83,7 @@ void tratasinal(int s){
     
     memcpy(&buff, (char*)&encerra, sizeof(encerra));
     sendData(uartValue, ENVIA_ESTADO_SIS, buff, 1);
+    sendData(uartValue, ENVIA_ESTADO_FUN, buff, 1);
 
     pthread_cancel(t_menu);
     pthread_cancel(t_forno);
