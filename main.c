@@ -6,10 +6,13 @@
 #include <pthread.h>
 #include <wiringPi.h>
 #include <softPwm.h>
+#include <linux/i2c-dev.h>
+#include <time.h>
 
 #include "bme280.h"
 #include "uart.h"
 #include "pid.h"
+#include "externa.h"
 
 #define RESISTOR 4
 #define VENTOINHA 5
@@ -19,6 +22,7 @@
 pthread_t t_menu;
 pthread_t t_forno;
 pthread_t t_temperaturaR;
+pthread_t t_armazenamento;
 
 float temperaturaI = 0;
 float temperaturaR = 0;
@@ -33,6 +37,8 @@ float kd = 400;
 int uartValue;
 int ligado = 0;
 int funcionamento = 0;
+
+FILE *arquivo;
 
 int setupUart(){
     int filestream = -1;
@@ -51,6 +57,8 @@ int setupUart(){
 
 void setupProgram(){
     uartValue = setupUart();
+    
+    
     if(wiringPiSetup() == -1){
         exit(1);
     }
@@ -60,6 +68,12 @@ void setupProgram(){
 
     softPwmCreate(RESISTOR,0,100);
     softPwmCreate(VENTOINHA,0,100);
+    
+    if(access("log.csv", F_OK) == -1){
+        arquivo = fopen("log.csv", "w");
+        fprintf(arquivo, "Data e Hora, Temp Interna, Temp referencia, Temp externa, Resistor, Ventoinha\n");
+        fclose(arquivo);
+    }
 
 }
 
@@ -73,6 +87,7 @@ void tratasinal(int s){
     pthread_cancel(t_menu);
     pthread_cancel(t_forno);
     pthread_cancel(t_temperaturaR);
+    pthread_cancel(t_armazenamento);
 
     softPwmWrite(RESISTOR,0);
     softPwmWrite(VENTOINHA,0);
@@ -102,6 +117,29 @@ void *medidorTemperaturaReferencia(){
         readData(uartValue, buffer, 9);
         memcpy(&temperaturaR, &buffer[3], 4);
         //printf("Temperatura referencia: %.2f\%\n", temperaturaR);
+    }
+}
+
+void medidorTemperaturaExterna(){
+    temperaturaE = temperaturaExterna();
+}
+
+void *guardaData(){
+    while(1){
+        usleep(1000000);
+        medidorTemperaturaExterna();
+        time_t datahora;
+        struct tm * timeinfo;
+        char tempo_convertido[100];
+
+        time (&datahora);
+        timeinfo = localtime(&datahora);
+        strcpy(tempo_convertido, asctime(timeinfo));
+        tempo_convertido[strlen(tempo_convertido)-1] = '\0';
+
+        arquivo = fopen("log.csv", "a");
+        fprintf(arquivo, "%s, %.2f, %.2f, %.2f, %.2f\%, %.2f\%\n", tempo_convertido, temperaturaI, temperaturaR, temperaturaE, resPWML, ventoinhaPWML);
+        fclose(arquivo);
     }
 }
 
@@ -228,19 +266,18 @@ void *menu(){
     }
 }
 
-int main(int argc, char *argv[]){
-    if(argc < 2){
-        printf("Eh necessario passar parametros para o funcionamento do programa!!\n");
-        exit(1);
-    }
+int main(){
 
     setupProgram();
     signal(SIGINT, tratasinal);
     pthread_create(&t_menu, NULL, menu, NULL);
     pthread_create(&t_forno, NULL, iniciaPID, NULL);
     pthread_create(&t_temperaturaR,NULL, medidorTemperaturaReferencia, NULL);
+    pthread_create(&t_armazenamento,NULL,guardaData,NULL);
     medidorTemperaturaInterna();
     pthread_join(t_menu,NULL);
     pthread_join(t_forno, NULL);
+    pthread_join(t_temperaturaR,NULL);
+    pthread_join(t_armazenamento,NULL);
     return 0;
 }
