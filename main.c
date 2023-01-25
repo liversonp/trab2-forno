@@ -26,6 +26,7 @@ pthread_t t_armazenamento;
 
 float temperaturaI = 0;
 float temperaturaR = 0;
+float temperaturaR2 = 0;
 float temperaturaE = 0;
 float resPWML = 0;
 float ventoinhaPWML = 0;
@@ -174,11 +175,14 @@ void *iniciaPID(){
     pid_configura_constantes(kp,ki,kd);
     while(1){
         if(funcionamento){
-            pid_atualiza_referencia(temperaturaR);
+            if(temperaturaR != 0){
+                temperaturaR2 = temperaturaR;
+            }
+            pid_atualiza_referencia(temperaturaR2);
             usleep(1000000);
             printf("%d\n", PIDflag);
             PIDflag = pid_controle(temperaturaI);
-            if(temperaturaR - temperaturaI <= 0.5 && temperaturaR - temperaturaI >= -0.5 && estavel == 5){
+            if(temperaturaR2 - temperaturaI <= 0.5 && temperaturaR2 - temperaturaI >= -0.5 && estavel == 5){
                 funcionamento = 0;
             }
             else if(PIDflag > 0){
@@ -189,7 +193,7 @@ void *iniciaPID(){
                 estavel = 0;
                 esfriarForno(PIDflag);
             }
-            if(temperaturaI - temperaturaR <= 0.5 && temperaturaI - temperaturaR >= -0.5){
+            if(temperaturaI - temperaturaR2 <= 0.5 && temperaturaI - temperaturaR2 >= -0.5){
                 estavel++;
             }
         }
