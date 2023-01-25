@@ -170,12 +170,13 @@ void esfriarForno(float valorVentoinha){
 
 void *iniciaPID(){
     int PIDflag = -1;
-    int contador = 0;
     int estavel = 0;
+    pid_configura_constantes(kp,ki,kd);
     while(1){
-        while(funcionamento){
-            contador++;
+        if(funcionamento){
+            pid_atualiza_referencia(temperaturaR);
             usleep(1000000);
+            printf("%d\n", PIDflag);
             PIDflag = pid_controle(temperaturaI);
             if(temperaturaR - temperaturaI <= 0.5 && temperaturaR - temperaturaI >= -0.5 && estavel == 5){
                 funcionamento = 0;
